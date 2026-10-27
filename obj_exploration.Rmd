@@ -1,0 +1,203 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+```{r include=FALSE}
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+
+igt44_sketch_obj<-readRDS("/Users/ryanmartinez/Desktop/Hamilton_seurat_obj/IGT44_withsketch.RDS")
+igt45_int_obj<-readRDS("/Users/ryanmartinez/Desktop/Hamilton_seurat_obj/IGT45_integrateddata.Rds")
+igt45_orig_obj<-readRDS("/Users/ryanmartinez/Desktop/Hamilton_seurat_obj/IGT45_origdata_withmetadata.Rds")
+igt45_sketch_obj<-readRDS("/Users/ryanmartinez/Desktop/Hamilton_seurat_obj/IGT45_withsketch.RDS")
+rename_df<-read_csv("/Users/ryanmartinez/Desktop/Hamilton_seurat_obj/annotation_table_20260201_conversion_forOdhran.csv")
+
+
+lookup <- setNames(rename_df$new_annotations,rename_df$annotation_level2)
+igt44_sketch_obj$annotations <- unname(lookup[as.character(igt44_sketch_obj$annotation_level2)])
+igt45_orig_obj$annotations <- unname(lookup[as.character(igt45_orig_obj$annotation_level2)])
+igt45_int_obj$annotations <- unname(lookup[as.character(igt45_int_obj$annotation_level2)])
+
+
+
+
+out_path<-"/Users/ryanmartinez/Desktop/Hamilton_seurat_obj/file_out/"
+
+igt44_sketch_obj$annot_spleen <- ifelse(igt44_sketch_obj$organ == "spleen",
+                                        as.character(igt44_sketch_obj$annotation_level1),
+                                        "other")
+
+annots <- setdiff(unique(igt44_sketch_obj$annot_spleen), "other")
+cols <- setNames(scales::hue_pal()(length(annots)), annots)
+cols["other"] <- "grey30"
+
+#Figure 1a
+DimPlot(object = igt44_sketch_obj,
+        reduction = "mde2_totalvi_20241006",
+        group.by = "annot_spleen",
+        cols = cols,
+        order = rev(annots))  
+
+ggsave(paste0(out_path,"figure_1a_umap_annotations.pdf"), width = 6, height = 6, dpi = 300)
+
+
+#this makes a new object based on time point, figure 1a right
+keep_samples <- c(
+  "2m COH Rep 1",
+  "2m COH Rep 2",
+  "2m COH Rep 3",
+  "2m COH Rep 4",
+"2wk COH Rep 1",
+"2wk COH Rep 2",
+"2wk COH Rep 3",
+"2wk COH Rep 4",
+"SPF",
+"Spleen control"
+)
+
+#gd populations
+
+seu_sub <- subset(igt44_sketch_obj, subset = sample_name.1 %in% keep_samples)
+seu_sub$timepoint <- dplyr::case_when(
+  grepl("^2m",  seu_sub$sample_name.1) ~ "2m",
+  grepl("^2wk", seu_sub$sample_name.1) ~ "2wk",
+  grepl("^SPF", seu_sub$sample_name.1) ~ "SPF",
+  grepl("^Spleen", seu_sub$sample_name.1) ~ "SPF",
+  TRUE ~ NA_character_
+)
+DimPlot(object = seu_sub,
+        reduction = "mde2_totalvi_20241006",
+        group.by = "annot_spleen",
+        cols = cols,
+        order = rev(annots),
+        split.by = "timepoint")  
+
+ggsave(paste0(out_path,"figure_1a_umap_annotations_by_sample.pdf"),  width = 10, height = 6, dpi = 300)
+
+
+#split out CD4s
+seu_cd4 <- subset(seu_sub, subset = annot_spleen == "CD4")
+plot_df <- seu_cd4@meta.data |> 
+  count(timepoint, annotations) |> 
+  group_by(timepoint) |> 
+  mutate(percent = n / sum(n) * 100) |> 
+  ungroup()
+ggplot(plot_df, aes(x = timepoint, y = percent, fill = annotations)) +
+  geom_col() +
+  labs(x = NULL, y = "% of CD4 cells", fill = "annotation_level2") +
+  theme_classic()
+
+ggsave(paste0(out_path,"figure_1e_cd4_breakdown_example.pdf"),  width = 8, height = 6, dpi = 300)
+
+
+saveRDS(seu_sub, paste0(out_path,"Figure1a_e_H_seurat_obj.rds"), compress = "xz")
+
+#lapply(igt44_sketch_obj@meta.data, unique)
+#seu_sub_lab <- subset(igt44_sketch_obj, subset = lab %in% c("Jameson"))
+#lapply(seu_sub_lab@meta.data, unique)
+
+# DimPlot(object = igt44_sketch_obj,
+#         reduction = "mde2_totalvi_20241006",
+#         group.by = "annot_spleen",
+#         cols = cols,
+#         order = rev(annots),
+#         split.by = "annot_spleen")  
+
+
+
+#this is slightly different than what is shown, not sure why, newer mapping?
+
+#Figure 2
+igt45_sub <- subset(
+  x = igt45_orig_obj,
+  subset = sample_group %in% c("SPF.D30", "CoH.D30") &
+           annotation_level1 == "CD8"
+)
+
+
+DimPlot(
+  object = igt45_sub,
+  reduction = "umap_rna",
+  group.by = "RNA_clusters",
+  label= TRUE
+)
+ggsave(paste0(out_path,"figure3d_umap_annotations.pdf"), width = 8, height = 6, dpi = 300)
+
+DimPlot(
+  object = igt45_sub,
+  reduction = "umap_rna",
+  group.by = "annotations",
+  label= FALSE
+)
+ggsave(paste0(out_path,"figure3e_umap_annotations.pdf"), width = 8, height = 6, dpi = 300)
+
+saveRDS(igt45_sub, paste0(out_path,"Figure3_d_e_seurat_obj.rds"), compress = "xz")
+
+
+#lapply(igt45_orig_obj@meta.data, unique)
+
+#lapply(igt45_int_obj@meta.data, unique)
+igt45_sub <- subset(
+  x = igt45_int_obj,
+  subset = annotation_level1 == "CD8"
+)
+
+ann_levels <- sort(unique(as.character(igt45_sub$annotations)))
+pal <- setNames(scales::hue_pal()(length(ann_levels)), ann_levels)
+pal["Other"] <- "grey85"
+
+
+plot_group <- function(obj, group, title) {
+  obj$highlight <- ifelse(
+    obj$sample_group == group,
+    as.character(obj$annotations),
+    "Other"
+  )
+  obj$highlight <- factor(obj$highlight, levels = c(ann_levels, "Other"))
+
+  DimPlot(
+    object = obj,
+    reduction = "mde_incremental",
+    group.by = "highlight",
+    cols = pal,
+    order = ann_levels
+  ) +
+    labs(title = title)
+  
+  ggsave(paste0(out_path,"figure3b_umap_annotations",title,".pdf"), width = 8, height = 6, dpi = 300)
+
+}
+
+p_nme <- plot_group(igt45_sub, "CoH.D30", "NME 30 dpi")
+p_spf <- plot_group(igt45_sub, "SPF.D30", "SPF 30 dpi")
+
+
+
+
+plot_df <- igt45_sub@meta.data |> 
+  count(sample_group, annotations) |> 
+  group_by(sample_group) |> 
+  mutate(percent = n / sum(n) * 100) |> 
+  ungroup() |> 
+  filter(sample_group == "CoH.D30"|sample_group == "SPF.D30" )
+ggplot(plot_df, aes(x = sample_group, y = percent, fill = annotations)) +
+  geom_col() +
+  labs(x = NULL, y = "% of CD8", fill = "annotation_level2") +
+  theme_classic()
+
+ggsave(paste0(out_path,"figure3c_cd8_distribution.pdf"), width = 8, height = 6, dpi = 300)
+
+
+saveRDS(igt45_sub, paste0(out_path,"Figure3_b_c_f_seurat_obj.rds"), compress = "xz")
+
+```
+
+
+
+
+
+
